@@ -2,19 +2,35 @@ using System.Collections.Generic;
 using UnityEngine;
 using System.Collections;
 
+[System.Serializable]
+public class AudioCondition
+{
+    public AudioSource audioSource;  // Die Audioquelle, die abgespielt werden soll
+    public string requiredTag;       // Der Tag im PlayerProfile, der überprüft wird
+    public int requiredValue = 1;    // Der Wert, der im PlayerProfile mindestens erreicht sein muss
+}
+
 public class TriggerAudioController : MonoBehaviour
 {
-    [SerializeField] private List<AudioSource> audioSources;  // Liste der Audioquellen in der Trigger Box
-    [SerializeField] private AudioSource speaker;             // Speaker, der die Audios abspielt
-    [SerializeField] private float fadeDuration = 1f;         // Dauer für Fade-In und Fade-Out
+    [SerializeField] private List<AudioCondition> audioConditions; // Liste der Audio-Bedingungen
+    [SerializeField] private AudioSource speaker;                 // Speaker, der die Audios abspielt
+    [SerializeField] private float fadeDuration = 1f;             // Dauer für Fade-In und Fade-Out
 
-    private Coroutine fadeCoroutine;                          // Speichert aktuelle Fade-Coroutine, um Konflikte zu vermeiden
+    private Coroutine fadeCoroutine;                              // Speichert die aktuelle Fade-Coroutine
 
     private void OnTriggerEnter(Collider other)
     {
         if (other.CompareTag("Player"))
         {
-            PlayRandomAudioWithFadeIn();
+            PlayerProfile playerProfile = other.GetComponent<PlayerProfile>();
+            if (playerProfile != null)
+            {
+                PlayAudioBasedOnConditions(playerProfile);
+            }
+            else
+            {
+                Debug.LogWarning("Kein PlayerProfile auf dem Spieler gefunden.");
+            }
         }
     }
 
@@ -26,49 +42,56 @@ public class TriggerAudioController : MonoBehaviour
         }
     }
 
-    private void PlayRandomAudioWithFadeIn()
+    private void PlayAudioBasedOnConditions(PlayerProfile profile)
     {
-        if (audioSources.Count == 0 || speaker == null)
+        if (audioConditions.Count == 0 || speaker == null)
         {
             Debug.LogWarning("Keine Audioquellen oder Speaker zugewiesen.");
             return;
         }
 
-        // Zufällige Audioquelle auswählen
-        int randomIndex = Random.Range(0, audioSources.Count);
-        AudioClip selectedClip = audioSources[randomIndex].clip;
-        speaker.clip = selectedClip;
-        
-        // Falls ein Fade läuft, beenden, um Konflikte zu vermeiden
-        if (fadeCoroutine != null)
+        foreach (AudioCondition condition in audioConditions)
         {
-            StopCoroutine(fadeCoroutine);
+            // Überprüfen, ob der Spieler den erforderlichen Wert für den Tag erreicht hat
+            ProfileValue value = profile.values.Find(v => v.tag == condition.requiredTag);
+
+            if (value != null && value.value >= condition.requiredValue)
+            {
+                // Bedingung erfüllt, setze die Audioquelle
+                speaker.clip = condition.audioSource.clip;
+
+                // Falls ein Fade läuft, beenden, um Konflikte zu vermeiden
+                if (fadeCoroutine != null)
+                {
+                    StopCoroutine(fadeCoroutine);
+                }
+
+                speaker.volume = 0;
+                speaker.Play();
+                fadeCoroutine = StartCoroutine(FadeIn());
+                return;  // Nur eine Audioquelle abspielen, daher hier abbrechen
+            }
         }
 
-        // Lautstärke auf 0 setzen, dann Clip starten und mit Fade-In erhöhen
-        speaker.volume = 0;
-        speaker.Play();
-        fadeCoroutine = StartCoroutine(FadeIn());
+        Debug.Log("Keine passende Audioquelle für die gegebenen Bedingungen gefunden.");
     }
 
     private void FadeOutAudio()
     {
         if (speaker != null && speaker.isPlaying)
         {
-            // Falls ein Fade läuft, beenden, um Konflikte zu vermeiden
             if (fadeCoroutine != null)
             {
                 StopCoroutine(fadeCoroutine);
             }
-            
-            // Startet Fade-Out
+
             fadeCoroutine = StartCoroutine(FadeOut());
         }
     }
 
     private IEnumerator FadeIn()
     {
-        float targetVolume = 1f;  // Ziel-Lautstärke
+        float targetVolume = 1f;
         float startVolume = speaker.volume;
 
         float elapsed = 0f;
@@ -79,7 +102,7 @@ public class TriggerAudioController : MonoBehaviour
             yield return null;
         }
 
-        speaker.volume = targetVolume;  // Stellt sicher, dass die Lautstärke am Ende exakt erreicht wird
+        speaker.volume = targetVolume;
     }
 
     private IEnumerator FadeOut()
@@ -94,7 +117,7 @@ public class TriggerAudioController : MonoBehaviour
             yield return null;
         }
 
-        speaker.volume = 0;  // Stellt sicher, dass die Lautstärke am Ende genau auf 0 ist
-        speaker.Stop();      // Stoppt die Wiedergabe vollständig
+        speaker.volume = 0;
+        speaker.Stop();
     }
 }
